@@ -18,7 +18,7 @@ fn hash(value: &str) -> Hash {
 }
 
 impl MerkleTree {
-    pub fn new(data: Vec<&str>) -> MerkleTree {
+    pub fn new(data: &Vec<&str>) -> MerkleTree {
         let mut merkle = MerkleTree { tree: Vec::new() };
         if data.is_empty() {
             return merkle;
@@ -70,7 +70,7 @@ mod tests {
         ];
         let root = vec![concat_hash(&first_level[0], &first_level[1])];
 
-        let merkle = MerkleTree::new(data);
+        let merkle = MerkleTree::new(&data);
 
         // compare merkle tree has the same hashes an lengthes
         assert_eq!(leaf_hash, merkle.tree[0]);
@@ -99,7 +99,7 @@ mod tests {
         ];
         let root = vec![concat_hash(&second_level[0], &second_level[1])];
 
-        let merkle = MerkleTree::new(data);
+        let merkle = MerkleTree::new(&data);
 
         assert_eq!(leaf_hash, merkle.tree[0]);
         assert_eq!(first_level, merkle.tree[1]);
