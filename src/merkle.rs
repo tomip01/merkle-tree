@@ -7,8 +7,19 @@ pub enum ProofError {
     NonExistingElement,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum BranchSide {
+    Left,
+    Right,
+}
+
 pub struct MerkleTree {
     tree: Vec<Vec<Hash>>,
+}
+
+pub struct Proof {
+    pub hash: Hash,
+    pub branch_side: BranchSide,
 }
 
 fn concat_hash(left: &Hash, right: &Hash) -> Hash {
@@ -60,7 +71,7 @@ impl MerkleTree {
 
     // if even index, should look for right siblign
     // if odd, look for left sibling
-    pub fn generate_proof(&self, value: &[u8]) -> Result<Vec<Hash>, ProofError> {
+    pub fn generate_proof(&self, value: &[u8]) -> Result<Vec<Proof>, ProofError> {
         let mut actual_index = match self.search_index(value) {
             Some(i) => i,
             None => return Err(ProofError::NonExistingElement),
@@ -71,15 +82,21 @@ impl MerkleTree {
                 // root achieved
                 break;
             }
-            let sibling_index = if actual_index % 2 == 0 {
-                actual_index + 1
+            let sibling = if actual_index % 2 == 0 {
+                (actual_index + 1, BranchSide::Right)
             } else {
-                actual_index - 1
+                (actual_index - 1, BranchSide::Left)
             };
 
-            match level.get(sibling_index) {
-                Some(hash) => proofs.push(*hash),
-                None => proofs.push(*level.get(actual_index).unwrap()),
+            match level.get(sibling.0) {
+                Some(hash) => proofs.push(Proof {
+                    hash: *hash,
+                    branch_side: sibling.1,
+                }),
+                None => proofs.push(Proof {
+                    hash: *level.get(actual_index).unwrap(),
+                    branch_side: sibling.1,
+                }),
             };
 
             // the reason for actual_index is divided by two is because in the parent level
@@ -168,8 +185,10 @@ mod tests {
         let merkle = MerkleTree::new(&data);
 
         let proof = merkle.generate_proof(b"is").unwrap();
-        assert_eq!(proof[0], leaf_hash[0]);
-        assert_eq!(proof[1], first_level[1]);
+        assert_eq!(proof[0].hash, leaf_hash[0]);
+        assert_eq!(proof[0].branch_side, BranchSide::Left);
+        assert_eq!(proof[1].hash, first_level[1]);
+        assert_eq!(proof[1].branch_side, BranchSide::Right);
         assert_eq!(proof.len(), 2);
     }
 
@@ -187,8 +206,10 @@ mod tests {
         let merkle = MerkleTree::new(&data);
 
         let proof = merkle.generate_proof(b"a").unwrap();
-        assert_eq!(proof[0], leaf_hash[3]);
-        assert_eq!(proof[1], first_level[0]);
+        assert_eq!(proof[0].hash, leaf_hash[3]);
+        assert_eq!(proof[0].branch_side, BranchSide::Right);
+        assert_eq!(proof[1].hash, first_level[0]);
+        assert_eq!(proof[1].branch_side, BranchSide::Left);
         assert_eq!(proof.len(), 2);
     }
 
@@ -215,9 +236,12 @@ mod tests {
         let merkle = MerkleTree::new(&data);
 
         let proof = merkle.generate_proof(b"tree").unwrap();
-        assert_eq!(proof[0], leaf_hash[4]);
-        assert_eq!(proof[1], first_level[2]);
-        assert_eq!(proof[2], second_level[0]);
+        assert_eq!(proof[0].hash, leaf_hash[4]);
+        assert_eq!(proof[0].branch_side, BranchSide::Right);
+        assert_eq!(proof[1].hash, first_level[2]);
+        assert_eq!(proof[1].branch_side, BranchSide::Right);
+        assert_eq!(proof[2].hash, second_level[0]);
+        assert_eq!(proof[2].branch_side, BranchSide::Left);
         assert_eq!(proof.len(), 3);
     }
 
