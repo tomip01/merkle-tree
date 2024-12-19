@@ -2,6 +2,11 @@ use sha3::{Digest, Sha3_256};
 
 type Hash = [u8; 32];
 
+#[derive(Debug)]
+pub enum ProofError {
+    NonExistingElement,
+}
+
 pub struct MerkleTree {
     tree: Vec<Vec<Hash>>,
 }
@@ -55,8 +60,11 @@ impl MerkleTree {
 
     // if even index, should look for right siblign
     // if odd, look for left sibling
-    pub fn generate_proof(&self, index_of_element: usize) -> Vec<Hash> {
-        let mut actual_index = index_of_element;
+    pub fn generate_proof(&self, value: &str) -> Result<Vec<Hash>, ProofError> {
+        let mut actual_index = match self.search_index(value) {
+            Some(i) => i,
+            None => return Err(ProofError::NonExistingElement),
+        };
         let mut proofs = Vec::new();
         for level in &self.tree {
             if level.len() == 1 {
@@ -80,7 +88,16 @@ impl MerkleTree {
             actual_index /= 2;
         }
 
-        proofs
+        Ok(proofs)
+    }
+
+    fn search_index(&self, value: &str) -> Option<usize> {
+        let value_hash = hash(value);
+        if let Some(leafs) = self.tree.first() {
+            leafs.iter().position(|x| *x == value_hash)
+        } else {
+            None
+        }
     }
 }
 
@@ -150,7 +167,7 @@ mod tests {
 
         let merkle = MerkleTree::new(&data);
 
-        let proof = merkle.generate_proof(1);
+        let proof = merkle.generate_proof("is").unwrap();
         assert_eq!(proof[0], leaf_hash[0]);
         assert_eq!(proof[1], first_level[1]);
         assert_eq!(proof.len(), 2);
@@ -169,7 +186,7 @@ mod tests {
 
         let merkle = MerkleTree::new(&data);
 
-        let proof = merkle.generate_proof(2);
+        let proof = merkle.generate_proof("a").unwrap();
         assert_eq!(proof[0], leaf_hash[3]);
         assert_eq!(proof[1], first_level[0]);
         assert_eq!(proof.len(), 2);
@@ -197,10 +214,24 @@ mod tests {
 
         let merkle = MerkleTree::new(&data);
 
-        let proof = merkle.generate_proof(4);
+        let proof = merkle.generate_proof("tree").unwrap();
         assert_eq!(proof[0], leaf_hash[4]);
         assert_eq!(proof[1], first_level[2]);
         assert_eq!(proof[2], second_level[0]);
         assert_eq!(proof.len(), 3);
+    }
+
+    #[test]
+    fn error_proof_on_notexisting_element() {
+        let data: Vec<&str> = vec!["this", "is", "a", "merkle", "tree"];
+        let merkle = MerkleTree::new(&data);
+        assert!(merkle.generate_proof("non_existing").is_err());
+    }
+
+    #[test]
+    fn error_proof_on_empty_tree() {
+        let data: Vec<&str> = vec![];
+        let merkle = MerkleTree::new(&data);
+        assert!(merkle.generate_proof("non_existing").is_err());
     }
 }
