@@ -2,21 +2,31 @@ use sha3::{Digest, Sha3_256};
 
 type Hash = [u8; 32];
 
+/// enum for errors related to the Merkle Tree
+/// NonExistingElement is for when generating a proof for an element it's not contained in the tree
 #[derive(Debug)]
-pub enum ProofError {
+pub enum MerkleError {
     NonExistingElement,
 }
 
+/// The Merkle Tree
+/// Contains the tree itself as a vector of vector of hashes
+/// It is built from the bottom to the root, first vector is the leaves, the last the root
 pub struct MerkleTree {
     tree: Vec<Vec<Hash>>,
 }
 
+/// Result type when generating proofs
+/// hashes: contain the hashes necessary to verify the proof
+/// index: is the index of the element in the leaf level
+/// root: root of the tree
 pub struct Proof {
     pub hashes: Vec<Hash>,
     pub index: usize,
     pub root: Hash,
 }
 
+/// given two references of hashes, concatenates them and hashes
 pub fn concat_hash(left: &Hash, right: &Hash) -> Hash {
     let mut hasher = Sha3_256::new();
     hasher.update(left);
@@ -24,11 +34,13 @@ pub fn concat_hash(left: &Hash, right: &Hash) -> Hash {
     hasher.finalize().into()
 }
 
+/// hashes an array of bytes
 pub fn hash(value: &[u8]) -> Hash {
     Sha3_256::digest(value).into()
 }
 
 impl MerkleTree {
+    /// data: a vector of an array of bytes to build the tree. Each element of the vector is a leaf to hash
     pub fn new(data: &Vec<&[u8]>) -> MerkleTree {
         let mut merkle = MerkleTree { tree: Vec::new() };
         if data.is_empty() {
@@ -64,12 +76,13 @@ impl MerkleTree {
         merkle
     }
 
-    // if even index, should look for right siblign
-    // if odd, look for left sibling
-    pub fn generate_proof(&self, value: &[u8]) -> Result<Proof, ProofError> {
+    /// value: elemento to search if it is in a leaf
+    /// then return only necesary hashes to calculate the root
+    /// Returns the Proof or an Error
+    pub fn generate_proof(&self, value: &[u8]) -> Result<Proof, MerkleError> {
         let element_index = match self.search_index(value) {
             Some(i) => i,
-            None => return Err(ProofError::NonExistingElement),
+            None => return Err(MerkleError::NonExistingElement),
         };
         let mut actual_index = element_index;
         let mut proofs = Vec::new();
@@ -78,6 +91,8 @@ impl MerkleTree {
                 // root achieved
                 break;
             }
+            // if even index, should look for right siblign
+            // if odd, look for left sibling
             let sibling_index = if actual_index % 2 == 0 {
                 actual_index + 1
             } else {
@@ -98,12 +113,17 @@ impl MerkleTree {
         Ok(Proof {
             hashes: proofs,
             index: element_index,
+            // Get last level (the root level) then the first (only hash) that is the root.
+            // It can't be empty beacuse at the beginning we search that the element exists.
             root: *self.tree.last().unwrap().first().unwrap(),
         })
     }
 
+    /// given a value, looks for and index in the leaf vector of the tree. Returns its index
     fn search_index(&self, value: &[u8]) -> Option<usize> {
         let value_hash = hash(value);
+        // the first element of the tree are the leaves
+        // then if not empty tree, search the position of the value hashed
         if let Some(leafs) = self.tree.first() {
             leafs.iter().position(|x| *x == value_hash)
         } else {
@@ -111,9 +131,12 @@ impl MerkleTree {
         }
     }
 
+    /// Verify if the leaf with a given proof and index can calculate the same root as provided
     pub fn verify(&self, proof: &Vec<Hash>, leaf: &Hash, root: &Hash, index: usize) -> bool {
         let mut actual_index = index;
         let mut actual_hash = *leaf;
+
+        // same logic as `generate_proof`
         for proof_hash in proof {
             actual_hash = match actual_index % 2 == 0 {
                 true => concat_hash(&actual_hash, proof_hash),
