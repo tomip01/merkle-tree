@@ -52,6 +52,30 @@ impl MerkleTree {
 
         merkle
     }
+
+    // if even index, should look for right siblign
+    // if odd, look for left sibling
+    pub fn generate_proof(&self, index_of_element: usize) -> Vec<Hash> {
+        let mut actual_index = index_of_element;
+        let mut proofs = Vec::new();
+        for level in &self.tree {
+            if level.len() == 1 {
+                // root achieved
+                break;
+            }
+            if actual_index % 2 == 0 {
+                // use right sibling
+                proofs.push(*level.get(actual_index + 1).unwrap());
+                actual_index /= 2;
+            } else {
+                // use left sibling
+                proofs.push(*level.get(actual_index - 1).unwrap());
+                actual_index /= 2;
+            }
+        }
+
+        proofs
+    }
 }
 
 #[cfg(test)]
@@ -105,5 +129,43 @@ mod tests {
         assert_eq!(first_level, merkle.tree[1]);
         assert_eq!(second_level, merkle.tree[2]);
         assert_eq!(root, merkle.tree[3]);
+    }
+
+    #[test]
+    fn generate_proof_easy_path() {
+        let data: Vec<&str> = vec!["this", "is", "a", "merkleTree"];
+
+        // calculate hashes with the library
+        let leaf_hash = [hash(data[0]), hash(data[1]), hash(data[2]), hash(data[3])];
+        let first_level = [
+            concat_hash(&leaf_hash[0], &leaf_hash[1]),
+            concat_hash(&leaf_hash[2], &leaf_hash[3]),
+        ];
+
+        let merkle = MerkleTree::new(&data);
+
+        let proof = merkle.generate_proof(1);
+        assert_eq!(proof[0], leaf_hash[0]);
+        assert_eq!(proof[1], first_level[1]);
+        assert_eq!(proof.len(), 2);
+    }
+
+    #[test]
+    fn generate_proof_easy_path_start_on_right() {
+        let data: Vec<&str> = vec!["this", "is", "a", "merkleTree"];
+
+        // calculate hashes with the library
+        let leaf_hash = [hash(data[0]), hash(data[1]), hash(data[2]), hash(data[3])];
+        let first_level = [
+            concat_hash(&leaf_hash[0], &leaf_hash[1]),
+            concat_hash(&leaf_hash[2], &leaf_hash[3]),
+        ];
+
+        let merkle = MerkleTree::new(&data);
+
+        let proof = merkle.generate_proof(2);
+        assert_eq!(proof[0], leaf_hash[3]);
+        assert_eq!(proof[1], first_level[0]);
+        assert_eq!(proof.len(), 2);
     }
 }
