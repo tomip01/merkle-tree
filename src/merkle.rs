@@ -63,15 +63,21 @@ impl MerkleTree {
                 // root achieved
                 break;
             }
-            if actual_index % 2 == 0 {
-                // use right sibling
-                proofs.push(*level.get(actual_index + 1).unwrap());
-                actual_index /= 2;
+            let sibling_index = if actual_index % 2 == 0 {
+                actual_index + 1
             } else {
-                // use left sibling
-                proofs.push(*level.get(actual_index - 1).unwrap());
-                actual_index /= 2;
-            }
+                actual_index - 1
+            };
+
+            match level.get(sibling_index) {
+                Some(hash) => proofs.push(*hash),
+                None => proofs.push(*level.get(actual_index).unwrap()),
+            };
+
+            // the reason for actual_index is divided by two is because in the parent level
+            // it has a half of hashes. Then when divided by two it gets the floor of the division
+            // reaching the correct index
+            actual_index /= 2;
         }
 
         proofs
@@ -167,5 +173,34 @@ mod tests {
         assert_eq!(proof[0], leaf_hash[3]);
         assert_eq!(proof[1], first_level[0]);
         assert_eq!(proof.len(), 2);
+    }
+
+    #[test]
+    fn generate_proof_on_five_entries() {
+        let data: Vec<&str> = vec!["this", "is", "a", "merkle", "tree"];
+        let leaf_hash = [
+            hash(data[0]),
+            hash(data[1]),
+            hash(data[2]),
+            hash(data[3]),
+            hash(data[4]),
+        ];
+        let first_level = [
+            concat_hash(&leaf_hash[0], &leaf_hash[1]),
+            concat_hash(&leaf_hash[2], &leaf_hash[3]),
+            concat_hash(&leaf_hash[4], &leaf_hash[4]),
+        ];
+        let second_level = [
+            concat_hash(&first_level[0], &first_level[1]),
+            concat_hash(&first_level[2], &first_level[2]),
+        ];
+
+        let merkle = MerkleTree::new(&data);
+
+        let proof = merkle.generate_proof(4);
+        assert_eq!(proof[0], leaf_hash[4]);
+        assert_eq!(proof[1], first_level[2]);
+        assert_eq!(proof[2], second_level[0]);
+        assert_eq!(proof.len(), 3);
     }
 }
