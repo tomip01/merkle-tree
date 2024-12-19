@@ -18,12 +18,12 @@ fn concat_hash(left: &Hash, right: &Hash) -> Hash {
     hasher.finalize().into()
 }
 
-fn hash(value: &str) -> Hash {
+fn hash(value: &[u8]) -> Hash {
     Sha3_256::digest(value).into()
 }
 
 impl MerkleTree {
-    pub fn new(data: &Vec<&str>) -> MerkleTree {
+    pub fn new(data: &Vec<&[u8]>) -> MerkleTree {
         let mut merkle = MerkleTree { tree: Vec::new() };
         if data.is_empty() {
             return merkle;
@@ -60,7 +60,7 @@ impl MerkleTree {
 
     // if even index, should look for right siblign
     // if odd, look for left sibling
-    pub fn generate_proof(&self, value: &str) -> Result<Vec<Hash>, ProofError> {
+    pub fn generate_proof(&self, value: &[u8]) -> Result<Vec<Hash>, ProofError> {
         let mut actual_index = match self.search_index(value) {
             Some(i) => i,
             None => return Err(ProofError::NonExistingElement),
@@ -91,7 +91,7 @@ impl MerkleTree {
         Ok(proofs)
     }
 
-    fn search_index(&self, value: &str) -> Option<usize> {
+    fn search_index(&self, value: &[u8]) -> Option<usize> {
         let value_hash = hash(value);
         if let Some(leafs) = self.tree.first() {
             leafs.iter().position(|x| *x == value_hash)
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn power_of_2_data_input() {
-        let data: Vec<&str> = vec!["this", "is", "a", "merkleTree"];
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
 
         // calculate hashes with the library
         let leaf_hash = vec![hash(data[0]), hash(data[1]), hash(data[2]), hash(data[3])];
@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn not_power_of_2_data_input() {
-        let data: Vec<&str> = vec!["this", "is", "a", "merkle", "tree"];
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkle", b"tree"];
         let leaf_hash = vec![
             hash(data[0]),
             hash(data[1]),
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn generate_proof_easy_path() {
-        let data: Vec<&str> = vec!["this", "is", "a", "merkleTree"];
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
 
         // calculate hashes with the library
         let leaf_hash = [hash(data[0]), hash(data[1]), hash(data[2]), hash(data[3])];
@@ -167,7 +167,7 @@ mod tests {
 
         let merkle = MerkleTree::new(&data);
 
-        let proof = merkle.generate_proof("is").unwrap();
+        let proof = merkle.generate_proof(b"is").unwrap();
         assert_eq!(proof[0], leaf_hash[0]);
         assert_eq!(proof[1], first_level[1]);
         assert_eq!(proof.len(), 2);
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn generate_proof_easy_path_start_on_right() {
-        let data: Vec<&str> = vec!["this", "is", "a", "merkleTree"];
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
 
         // calculate hashes with the library
         let leaf_hash = [hash(data[0]), hash(data[1]), hash(data[2]), hash(data[3])];
@@ -186,7 +186,7 @@ mod tests {
 
         let merkle = MerkleTree::new(&data);
 
-        let proof = merkle.generate_proof("a").unwrap();
+        let proof = merkle.generate_proof(b"a").unwrap();
         assert_eq!(proof[0], leaf_hash[3]);
         assert_eq!(proof[1], first_level[0]);
         assert_eq!(proof.len(), 2);
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn generate_proof_on_five_entries() {
-        let data: Vec<&str> = vec!["this", "is", "a", "merkle", "tree"];
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkle", b"tree"];
         let leaf_hash = [
             hash(data[0]),
             hash(data[1]),
@@ -214,7 +214,7 @@ mod tests {
 
         let merkle = MerkleTree::new(&data);
 
-        let proof = merkle.generate_proof("tree").unwrap();
+        let proof = merkle.generate_proof(b"tree").unwrap();
         assert_eq!(proof[0], leaf_hash[4]);
         assert_eq!(proof[1], first_level[2]);
         assert_eq!(proof[2], second_level[0]);
@@ -223,15 +223,15 @@ mod tests {
 
     #[test]
     fn error_proof_on_notexisting_element() {
-        let data: Vec<&str> = vec!["this", "is", "a", "merkle", "tree"];
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkle", b"tree"];
         let merkle = MerkleTree::new(&data);
-        assert!(merkle.generate_proof("non_existing").is_err());
+        assert!(merkle.generate_proof(b"non_existing").is_err());
     }
 
     #[test]
     fn error_proof_on_empty_tree() {
-        let data: Vec<&str> = vec![];
+        let data: Vec<&[u8]> = vec![];
         let merkle = MerkleTree::new(&data);
-        assert!(merkle.generate_proof("non_existing").is_err());
+        assert!(merkle.generate_proof(b"non_existing").is_err());
     }
 }
