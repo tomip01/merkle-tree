@@ -2,38 +2,45 @@ use sha3::{Digest, Sha3_256};
 
 type Hash = [u8; 32];
 
+/// enum for errors related to the Merkle Tree
+/// NonExistingElement is for when generating a proof for an element it's not contained in the tree
 #[derive(Debug)]
-pub enum ProofError {
+pub enum MerkleError {
     NonExistingElement,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum BranchSide {
-    Left,
-    Right,
-}
-
+/// The Merkle Tree
+/// Contains the tree itself as a vector of vector of hashes
+/// It is built from the bottom to the root, first vector is the leaves, the last the root
 pub struct MerkleTree {
     tree: Vec<Vec<Hash>>,
 }
 
+/// Result type when generating proofs
+/// hashes: contain the hashes necessary to verify the proof
+/// index: is the index of the element in the leaf level
+/// root: root of the tree
 pub struct Proof {
-    pub hash: Hash,
-    pub branch_side: BranchSide,
+    pub hashes: Vec<Hash>,
+    pub index: usize,
+    pub root: Hash,
 }
 
-fn concat_hash(left: &Hash, right: &Hash) -> Hash {
+/// given two references of hashes, concatenates them and hashes
+pub fn concat_hash(left: &Hash, right: &Hash) -> Hash {
     let mut hasher = Sha3_256::new();
     hasher.update(left);
     hasher.update(right);
     hasher.finalize().into()
 }
 
-fn hash(value: &[u8]) -> Hash {
+/// hashes an array of bytes
+pub fn hash(value: &[u8]) -> Hash {
     Sha3_256::digest(value).into()
 }
 
 impl MerkleTree {
+    /// data: a vector of an array of bytes to build the tree. Each element of the vector is a leaf to hash
     pub fn new(data: &Vec<&[u8]>) -> MerkleTree {
         let mut merkle = MerkleTree { tree: Vec::new() };
         if data.is_empty() {
@@ -69,34 +76,32 @@ impl MerkleTree {
         merkle
     }
 
-    // if even index, should look for right siblign
-    // if odd, look for left sibling
-    pub fn generate_proof(&self, value: &[u8]) -> Result<Vec<Proof>, ProofError> {
-        let mut actual_index = match self.search_index(value) {
+    /// value: elemento to search if it is in a leaf
+    /// then return only necesary hashes to calculate the root
+    /// Returns the Proof or an Error
+    pub fn generate_proof(&self, value: &[u8]) -> Result<Proof, MerkleError> {
+        let element_index = match self.search_index(value) {
             Some(i) => i,
-            None => return Err(ProofError::NonExistingElement),
+            None => return Err(MerkleError::NonExistingElement),
         };
+        let mut actual_index = element_index;
         let mut proofs = Vec::new();
         for level in &self.tree {
             if level.len() == 1 {
                 // root achieved
                 break;
             }
-            let sibling = if actual_index % 2 == 0 {
-                (actual_index + 1, BranchSide::Right)
+            // if even index, should look for right siblign
+            // if odd, look for left sibling
+            let sibling_index = if actual_index % 2 == 0 {
+                actual_index + 1
             } else {
-                (actual_index - 1, BranchSide::Left)
+                actual_index - 1
             };
 
-            match level.get(sibling.0) {
-                Some(hash) => proofs.push(Proof {
-                    hash: *hash,
-                    branch_side: sibling.1,
-                }),
-                None => proofs.push(Proof {
-                    hash: *level.get(actual_index).unwrap(),
-                    branch_side: sibling.1,
-                }),
+            match level.get(sibling_index) {
+                Some(hash) => proofs.push(*hash),
+                None => proofs.push(*level.get(actual_index).unwrap()),
             };
 
             // the reason for actual_index is divided by two is because in the parent level
@@ -105,16 +110,41 @@ impl MerkleTree {
             actual_index /= 2;
         }
 
-        Ok(proofs)
+        Ok(Proof {
+            hashes: proofs,
+            index: element_index,
+            // Get last level (the root level) then the first (only hash) that is the root.
+            // It can't be empty beacuse at the beginning we search that the element exists.
+            root: *self.tree.last().unwrap().first().unwrap(),
+        })
     }
 
+    /// given a value, looks for and index in the leaf vector of the tree. Returns its index
     fn search_index(&self, value: &[u8]) -> Option<usize> {
         let value_hash = hash(value);
+        // the first element of the tree are the leaves
+        // then if not empty tree, search the position of the value hashed
         if let Some(leafs) = self.tree.first() {
             leafs.iter().position(|x| *x == value_hash)
         } else {
             None
         }
+    }
+
+    /// Verify if the leaf with a given proof and index can calculate the same root as provided
+    pub fn verify(&self, proof: &Vec<Hash>, leaf: &Hash, root: &Hash, index: usize) -> bool {
+        let mut actual_index = index;
+        let mut actual_hash = *leaf;
+
+        // same logic as `generate_proof`
+        for proof_hash in proof {
+            actual_hash = match actual_index % 2 == 0 {
+                true => concat_hash(&actual_hash, proof_hash),
+                false => concat_hash(proof_hash, &actual_hash),
+            };
+            actual_index /= 2;
+        }
+        &actual_hash == root
     }
 }
 
@@ -185,11 +215,11 @@ mod tests {
         let merkle = MerkleTree::new(&data);
 
         let proof = merkle.generate_proof(b"is").unwrap();
-        assert_eq!(proof[0].hash, leaf_hash[0]);
-        assert_eq!(proof[0].branch_side, BranchSide::Left);
-        assert_eq!(proof[1].hash, first_level[1]);
-        assert_eq!(proof[1].branch_side, BranchSide::Right);
-        assert_eq!(proof.len(), 2);
+        assert_eq!(proof.hashes[0], leaf_hash[0]);
+        assert_eq!(proof.hashes[1], first_level[1]);
+        assert_eq!(proof.hashes.len(), 2);
+        assert_eq!(proof.root, merkle.tree.last().unwrap()[0]);
+        assert_eq!(proof.index, 1);
     }
 
     #[test]
@@ -206,11 +236,11 @@ mod tests {
         let merkle = MerkleTree::new(&data);
 
         let proof = merkle.generate_proof(b"a").unwrap();
-        assert_eq!(proof[0].hash, leaf_hash[3]);
-        assert_eq!(proof[0].branch_side, BranchSide::Right);
-        assert_eq!(proof[1].hash, first_level[0]);
-        assert_eq!(proof[1].branch_side, BranchSide::Left);
-        assert_eq!(proof.len(), 2);
+        assert_eq!(proof.hashes[0], leaf_hash[3]);
+        assert_eq!(proof.hashes[1], first_level[0]);
+        assert_eq!(proof.hashes.len(), 2);
+        assert_eq!(proof.root, merkle.tree.last().unwrap()[0]);
+        assert_eq!(proof.index, 2);
     }
 
     #[test]
@@ -236,13 +266,12 @@ mod tests {
         let merkle = MerkleTree::new(&data);
 
         let proof = merkle.generate_proof(b"tree").unwrap();
-        assert_eq!(proof[0].hash, leaf_hash[4]);
-        assert_eq!(proof[0].branch_side, BranchSide::Right);
-        assert_eq!(proof[1].hash, first_level[2]);
-        assert_eq!(proof[1].branch_side, BranchSide::Right);
-        assert_eq!(proof[2].hash, second_level[0]);
-        assert_eq!(proof[2].branch_side, BranchSide::Left);
-        assert_eq!(proof.len(), 3);
+        assert_eq!(proof.hashes[0], leaf_hash[4]);
+        assert_eq!(proof.hashes[1], first_level[2]);
+        assert_eq!(proof.hashes[2], second_level[0]);
+        assert_eq!(proof.hashes.len(), 3);
+        assert_eq!(proof.root, merkle.tree.last().unwrap()[0]);
+        assert_eq!(proof.index, 4);
     }
 
     #[test]
@@ -257,5 +286,30 @@ mod tests {
         let data: Vec<&[u8]> = vec![];
         let merkle = MerkleTree::new(&data);
         assert!(merkle.generate_proof(b"non_existing").is_err());
+    }
+
+    #[test]
+    fn happy_verify() {
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
+        let merkle = MerkleTree::new(&data);
+        let proof = merkle.generate_proof(b"is").unwrap();
+        assert!(merkle.verify(&proof.hashes, &hash(b"is"), &proof.root, proof.index));
+    }
+
+    #[test]
+    fn bad_verify_different_proof_for_element() {
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
+        let merkle = MerkleTree::new(&data);
+        let proof = merkle.generate_proof(b"is").unwrap();
+        assert!(!merkle.verify(&proof.hashes, &hash(b"a"), &proof.root, proof.index));
+    }
+
+    #[test]
+    fn bad_verify_wrong_root() {
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
+        let merkle = MerkleTree::new(&data);
+        let proof = merkle.generate_proof(b"is").unwrap();
+        let bad_root = [0_u8; 32];
+        assert!(!merkle.verify(&proof.hashes, &hash(b"a"), &bad_root, proof.index));
     }
 }
