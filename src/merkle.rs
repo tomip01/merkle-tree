@@ -141,15 +141,19 @@ impl MerkleTree {
     }
 
     /// Verify if the leaf with a given proof and index can calculate the same root as provided
-    pub fn verify(&self, proof: &Vec<Hash>, leaf: &Hash, root: &Hash, index: usize) -> bool {
+    pub fn verify(&self, proof: &Proof, leaf: &Hash) -> bool {
+        let hashes = &proof.hashes;
+        let index = proof.index;
+        let root = &proof.root;
         let mut actual_index = index;
         let mut actual_hash = *leaf;
 
         // same logic as `generate_proof`
-        for proof_hash in proof {
-            actual_hash = match actual_index % 2 == 0 {
-                true => concat_hash(&actual_hash, proof_hash),
-                false => concat_hash(proof_hash, &actual_hash),
+        for proof_hash in hashes {
+            if actual_index % 2 == 0 {
+                actual_hash = concat_hash(&actual_hash, proof_hash);
+            } else {
+                actual_hash = concat_hash(proof_hash, &actual_hash);
             };
             actual_index /= 2;
         }
@@ -367,7 +371,7 @@ mod tests {
         let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
         let merkle = MerkleTree::new(&data);
         let proof = merkle.generate_proof(b"is").unwrap();
-        assert!(merkle.verify(&proof.hashes, &hash(b"is"), &proof.root, proof.index));
+        assert!(merkle.verify(&proof, &hash(b"is")));
     }
 
     #[test]
@@ -375,16 +379,18 @@ mod tests {
         let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
         let merkle = MerkleTree::new(&data);
         let proof = merkle.generate_proof(b"is").unwrap();
-        assert!(!merkle.verify(&proof.hashes, &hash(b"a"), &proof.root, proof.index));
+        assert!(!merkle.verify(&proof, &hash(b"a")));
     }
 
     #[test]
     fn bad_verify_wrong_root() {
         let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
         let merkle = MerkleTree::new(&data);
-        let proof = merkle.generate_proof(b"is").unwrap();
+        let mut proof = merkle.generate_proof(b"is").unwrap();
+
         let bad_root = [0_u8; 32];
-        assert!(!merkle.verify(&proof.hashes, &hash(b"a"), &bad_root, proof.index));
+        proof.root = bad_root;
+        assert!(!merkle.verify(&proof, &hash(b"a")));
     }
 
     #[test]

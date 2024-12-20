@@ -31,10 +31,7 @@ merkle.add(b"tree");
 
 // generate a proof
 let proof = merkle.generate_proof(b"is").unwrap();
-let hashes = &proof.hashes;
-let root = &proof.root;
-let index = proof.index;
 
 // verify is a valid proof
-let verified = merkle.verify(hashes, &hash(b"is"), root, index);
+let verified = merkle.verify(proof, &hash(b"is"));
 ```
