@@ -46,12 +46,17 @@ impl MerkleTree {
         if data.is_empty() {
             return merkle;
         }
-
         // push hashes of the input
-        let leafs: Vec<Hash> = data.iter().map(|value| hash(value)).collect();
-        merkle.tree.push(leafs);
+        let leaves: Vec<Hash> = data.iter().map(|value| hash(value)).collect();
 
-        while let Some(previous_level) = merkle.tree.last() {
+        merkle.tree.push(leaves);
+        merkle.build();
+        merkle
+    }
+
+    /// private function to build a tree bottom up from the leaves
+    fn build(&mut self) {
+        while let Some(previous_level) = self.tree.last() {
             if previous_level.len() == 1 {
                 // root achieved
                 break;
@@ -70,10 +75,8 @@ impl MerkleTree {
                 let concatenated_hash: Hash = concat_hash(hash_i, sibling_hash);
                 new_level.push(concatenated_hash);
             }
-            merkle.tree.push(new_level);
+            self.tree.push(new_level);
         }
-
-        merkle
     }
 
     /// value: elemento to search if it is in a leaf
@@ -113,9 +116,7 @@ impl MerkleTree {
         Ok(Proof {
             hashes: proofs,
             index: element_index,
-            // Get last level (the root level) then the first (only hash) that is the root.
-            // It can't be empty beacuse at the beginning we search that the element exists.
-            root: *self.tree.last().unwrap().first().unwrap(),
+            root: *self.get_root().unwrap(),
         })
     }
 
@@ -124,27 +125,104 @@ impl MerkleTree {
         let value_hash = hash(value);
         // the first element of the tree are the leaves
         // then if not empty tree, search the position of the value hashed
-        if let Some(leafs) = self.tree.first() {
-            leafs.iter().position(|x| *x == value_hash)
+        if let Some(leaves) = self.tree.first() {
+            leaves.iter().position(|x| *x == value_hash)
+        } else {
+            None
+        }
+    }
+
+    fn get_root(&self) -> Option<&Hash> {
+        if let Some(root_level) = self.tree.last() {
+            root_level.first()
         } else {
             None
         }
     }
 
     /// Verify if the leaf with a given proof and index can calculate the same root as provided
-    pub fn verify(&self, proof: &Vec<Hash>, leaf: &Hash, root: &Hash, index: usize) -> bool {
+    pub fn verify(&self, proof: &Proof, leaf: &Hash) -> bool {
+        let hashes = &proof.hashes;
+        let index = proof.index;
+        let root = &proof.root;
         let mut actual_index = index;
         let mut actual_hash = *leaf;
 
         // same logic as `generate_proof`
-        for proof_hash in proof {
-            actual_hash = match actual_index % 2 == 0 {
-                true => concat_hash(&actual_hash, proof_hash),
-                false => concat_hash(proof_hash, &actual_hash),
+        for proof_hash in hashes {
+            if actual_index % 2 == 0 {
+                actual_hash = concat_hash(&actual_hash, proof_hash);
+            } else {
+                actual_hash = concat_hash(proof_hash, &actual_hash);
             };
             actual_index /= 2;
         }
         &actual_hash == root
+    }
+
+    /// value: new element to be added to the tree. It has to be an array of bytes
+    pub fn add(&mut self, value: &[u8]) {
+        let new_leaf = hash(value);
+        let leaves = self.get_mut_leaves();
+        leaves.push(new_leaf);
+
+        // tree with only one element, the root
+        if leaves.len() == 1 {
+            return;
+        }
+
+        let mut actual_index = leaves.len() - 1;
+
+        // iterate once per level in the tree to create or update the hashes
+        for i in 0..self.tree.len() - 1 {
+            let current_level = &self.tree[i];
+
+            // determine which side to look for the hash
+            let sibling_index = if actual_index % 2 == 0 {
+                actual_index + 1
+            } else {
+                actual_index - 1
+            };
+
+            let self_hash = current_level.get(actual_index).unwrap();
+            let sibling_hash = match current_level.get(sibling_index) {
+                Some(hash) => hash,
+                None => current_level.get(actual_index).unwrap(),
+            };
+
+            let new_hash = if actual_index % 2 == 0 {
+                concat_hash(self_hash, sibling_hash)
+            } else {
+                concat_hash(sibling_hash, self_hash)
+            };
+
+            actual_index /= 2;
+
+            // now check if the element is present, then update the hash (only occurs when the same hash is used to create a new one)
+            // if not present, push the new hash
+            match self.tree[i + 1].get(actual_index) {
+                Some(_) => self.tree[i + 1][actual_index] = new_hash,
+                None => self.tree[i + 1].push(new_hash),
+            }
+        }
+
+        // this is for when the tree is raised one level. The previous root level now has two elements instead of one
+        // then we need to create a new level with the hash of the two elements concatenated
+        if let Some(last_level) = self.tree.last() {
+            if last_level.len() == 2 {
+                self.tree
+                    .push(vec![concat_hash(&last_level[0], &last_level[1])]);
+            }
+        }
+    }
+
+    fn get_mut_leaves(&mut self) -> &mut Vec<Hash> {
+        if self.tree.first_mut().is_none() {
+            let leaves = vec![];
+            self.tree.push(leaves);
+        }
+        // I ensured it's not empty
+        self.tree.first_mut().unwrap()
     }
 }
 
@@ -293,7 +371,7 @@ mod tests {
         let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
         let merkle = MerkleTree::new(&data);
         let proof = merkle.generate_proof(b"is").unwrap();
-        assert!(merkle.verify(&proof.hashes, &hash(b"is"), &proof.root, proof.index));
+        assert!(merkle.verify(&proof, &hash(b"is")));
     }
 
     #[test]
@@ -301,15 +379,73 @@ mod tests {
         let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
         let merkle = MerkleTree::new(&data);
         let proof = merkle.generate_proof(b"is").unwrap();
-        assert!(!merkle.verify(&proof.hashes, &hash(b"a"), &proof.root, proof.index));
+        assert!(!merkle.verify(&proof, &hash(b"a")));
     }
 
     #[test]
     fn bad_verify_wrong_root() {
         let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
         let merkle = MerkleTree::new(&data);
-        let proof = merkle.generate_proof(b"is").unwrap();
+        let mut proof = merkle.generate_proof(b"is").unwrap();
+
         let bad_root = [0_u8; 32];
-        assert!(!merkle.verify(&proof.hashes, &hash(b"a"), &bad_root, proof.index));
+        proof.root = bad_root;
+        assert!(!merkle.verify(&proof, &hash(b"a")));
+    }
+
+    #[test]
+    fn add_correct_for_three_elements() {
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a"];
+
+        let mut merkle = MerkleTree::new(&data);
+        merkle.add(b"merkleTree");
+
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
+
+        // calculate hashes with the library
+        let leaf_hash = vec![hash(data[0]), hash(data[1]), hash(data[2]), hash(data[3])];
+        let first_level = vec![
+            concat_hash(&leaf_hash[0], &leaf_hash[1]),
+            concat_hash(&leaf_hash[2], &leaf_hash[3]),
+        ];
+        let root = vec![concat_hash(&first_level[0], &first_level[1])];
+
+        assert_eq!(leaf_hash, merkle.tree[0]);
+        assert_eq!(first_level, merkle.tree[1]);
+        assert_eq!(root, merkle.tree[2]);
+        assert_eq!(3, merkle.tree.len());
+    }
+
+    #[test]
+    fn add_correct_for_four_elements() {
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkle"];
+
+        let mut merkle = MerkleTree::new(&data);
+        merkle.add(b"tree");
+
+        let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkle", b"tree"];
+        let leaf_hash = vec![
+            hash(data[0]),
+            hash(data[1]),
+            hash(data[2]),
+            hash(data[3]),
+            hash(data[4]),
+        ];
+        let first_level = vec![
+            concat_hash(&leaf_hash[0], &leaf_hash[1]),
+            concat_hash(&leaf_hash[2], &leaf_hash[3]),
+            concat_hash(&leaf_hash[4], &leaf_hash[4]),
+        ];
+        let second_level = vec![
+            concat_hash(&first_level[0], &first_level[1]),
+            concat_hash(&first_level[2], &first_level[2]),
+        ];
+        let root = vec![concat_hash(&second_level[0], &second_level[1])];
+
+        assert_eq!(leaf_hash, merkle.tree[0]);
+        assert_eq!(first_level, merkle.tree[1]);
+        assert_eq!(second_level, merkle.tree[2]);
+        assert_eq!(root, merkle.tree[3]);
+        assert_eq!(4, merkle.tree.len());
     }
 }
