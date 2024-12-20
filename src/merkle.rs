@@ -46,12 +46,17 @@ impl MerkleTree {
         if data.is_empty() {
             return merkle;
         }
-
         // push hashes of the input
-        let leafs: Vec<Hash> = data.iter().map(|value| hash(value)).collect();
-        merkle.tree.push(leafs);
+        let leaves: Vec<Hash> = data.iter().map(|value| hash(value)).collect();
 
-        while let Some(previous_level) = merkle.tree.last() {
+        merkle.tree.push(leaves);
+        merkle.build();
+        merkle
+    }
+
+    /// private function to build a tree bottom up from the leaves
+    fn build(&mut self) {
+        while let Some(previous_level) = self.tree.last() {
             if previous_level.len() == 1 {
                 // root achieved
                 break;
@@ -70,10 +75,8 @@ impl MerkleTree {
                 let concatenated_hash: Hash = concat_hash(hash_i, sibling_hash);
                 new_level.push(concatenated_hash);
             }
-            merkle.tree.push(new_level);
+            self.tree.push(new_level);
         }
-
-        merkle
     }
 
     /// value: elemento to search if it is in a leaf
@@ -113,9 +116,7 @@ impl MerkleTree {
         Ok(Proof {
             hashes: proofs,
             index: element_index,
-            // Get last level (the root level) then the first (only hash) that is the root.
-            // It can't be empty beacuse at the beginning we search that the element exists.
-            root: *self.tree.last().unwrap().first().unwrap(),
+            root: *self.get_root().unwrap(),
         })
     }
 
@@ -126,6 +127,14 @@ impl MerkleTree {
         // then if not empty tree, search the position of the value hashed
         if let Some(leaves) = self.tree.first() {
             leaves.iter().position(|x| *x == value_hash)
+        } else {
+            None
+        }
+    }
+
+    fn get_root(&self) -> Option<&Hash> {
+        if let Some(root_level) = self.tree.last() {
+            root_level.first()
         } else {
             None
         }
@@ -147,36 +156,34 @@ impl MerkleTree {
         &actual_hash == root
     }
 
+    /// value: new element to be added to the tree. It has to be an array of bytes
     pub fn add(&mut self, value: &[u8]) {
         let new_leaf = hash(value);
-        let leaves = match self.tree.first_mut() {
-            Some(leaves) => leaves,
-            None => {
-                let leaves = vec![];
-                self.tree.push(leaves);
-                &mut self.tree[0]
-            }
-        };
+        let leaves = self.get_mut_leaves();
         leaves.push(new_leaf);
 
+        // tree with only one element, the root
         if leaves.len() == 1 {
-            // root achieved
             return;
         }
 
         let mut actual_index = leaves.len() - 1;
 
+        // iterate once per level in the tree to create or update the hashes
         for i in 0..self.tree.len() - 1 {
+            let current_level = &self.tree[i];
+
+            // determine which side to look for the hash
             let sibling_index = if actual_index % 2 == 0 {
                 actual_index + 1
             } else {
                 actual_index - 1
             };
 
-            let self_hash = self.tree[i].get(actual_index).unwrap();
-            let sibling_hash = match self.tree[i].get(sibling_index) {
+            let self_hash = current_level.get(actual_index).unwrap();
+            let sibling_hash = match current_level.get(sibling_index) {
                 Some(hash) => hash,
-                None => self.tree[i].get(actual_index).unwrap(),
+                None => current_level.get(actual_index).unwrap(),
             };
 
             let new_hash = if actual_index % 2 == 0 {
@@ -187,20 +194,31 @@ impl MerkleTree {
 
             actual_index /= 2;
 
-            // now check if element is present, update
-            // if not present, push element
+            // now check if element is present, then update the hash (only occur when the same hash is used to create a new one)
+            // if not present, push the new hash
             match self.tree[i + 1].get(actual_index) {
                 Some(_) => self.tree[i + 1][actual_index] = new_hash,
                 None => self.tree[i + 1].push(new_hash),
             }
         }
 
+        // this is for when the tree raise one level. The previous root level now has two elements instead of one
+        // then we need to create a new level with the hash of the two elements concatenated
         if let Some(last_level) = self.tree.last() {
             if last_level.len() == 2 {
                 self.tree
                     .push(vec![concat_hash(&last_level[0], &last_level[1])]);
             }
         }
+    }
+
+    fn get_mut_leaves(&mut self) -> &mut Vec<Hash> {
+        if self.tree.first_mut().is_none() {
+            let leaves = vec![];
+            self.tree.push(leaves);
+        }
+        // I ensured it's not empty
+        self.tree.first_mut().unwrap()
     }
 }
 
