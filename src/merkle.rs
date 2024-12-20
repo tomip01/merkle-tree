@@ -194,7 +194,7 @@ impl MerkleTree {
 
             actual_index /= 2;
 
-            // now check if element is present, then update the hash (only occur when the same hash is used to create a new one)
+            // now check if the element is present, then update the hash (only occurs when the same hash is used to create a new one)
             // if not present, push the new hash
             match self.tree[i + 1].get(actual_index) {
                 Some(_) => self.tree[i + 1][actual_index] = new_hash,
