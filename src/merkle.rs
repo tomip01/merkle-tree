@@ -202,7 +202,7 @@ impl MerkleTree {
             }
         }
 
-        // this is for when the tree raise one level. The previous root level now has two elements instead of one
+        // this is for when the tree is raised one level. The previous root level now has two elements instead of one
         // then we need to create a new level with the hash of the two elements concatenated
         if let Some(last_level) = self.tree.last() {
             if last_level.len() == 2 {
