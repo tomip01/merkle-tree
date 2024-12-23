@@ -282,6 +282,59 @@ mod tests {
     }
 
     #[test]
+    fn big_bytes_to_hash() {
+        let data: Vec<&[u8]> = vec![
+            b"this",
+            b"is",
+            b"a",
+            b"merkle",
+            b"tree",
+            b"transaction0x1234567890123456789012345678901234567890",
+            b"transaction0x1234567890123456789012345678901234567891",
+            b"transaction0x1234567890123456789012345678901234567892",
+            b"transaction0x1234567890123456789012345678901234567893",
+            b"transaction0x1234567890123456789012345678901234567894",
+        ];
+        let leaf_hash = vec![
+            hash(data[0]),
+            hash(data[1]),
+            hash(data[2]),
+            hash(data[3]),
+            hash(data[4]),
+            hash(data[5]),
+            hash(data[6]),
+            hash(data[7]),
+            hash(data[8]),
+            hash(data[9]),
+        ];
+        let first_level = vec![
+            concat_hash(&leaf_hash[0], &leaf_hash[1]),
+            concat_hash(&leaf_hash[2], &leaf_hash[3]),
+            concat_hash(&leaf_hash[4], &leaf_hash[5]),
+            concat_hash(&leaf_hash[6], &leaf_hash[7]),
+            concat_hash(&leaf_hash[8], &leaf_hash[9]),
+        ];
+        let second_level = vec![
+            concat_hash(&first_level[0], &first_level[1]),
+            concat_hash(&first_level[2], &first_level[3]),
+            concat_hash(&first_level[4], &first_level[4]),
+        ];
+        let third_level = vec![
+            concat_hash(&second_level[0], &second_level[1]),
+            concat_hash(&second_level[2], &second_level[2]),
+        ];
+        let root = vec![concat_hash(&third_level[0], &third_level[1])];
+
+        let merkle = MerkleTree::new(&data);
+
+        assert_eq!(leaf_hash, merkle.tree[0]);
+        assert_eq!(first_level, merkle.tree[1]);
+        assert_eq!(second_level, merkle.tree[2]);
+        assert_eq!(third_level, merkle.tree[3]);
+        assert_eq!(root, merkle.tree[4]);
+    }
+
+    #[test]
     fn generate_proof_easy_path() {
         let data: Vec<&[u8]> = vec![b"this", b"is", b"a", b"merkleTree"];
 
