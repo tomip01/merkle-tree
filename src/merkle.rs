@@ -217,11 +217,13 @@ impl MerkleTree {
     }
 
     fn get_mut_leaves(&mut self) -> &mut Vec<Hash> {
-        if self.tree.first_mut().is_none() {
-            let leaves = vec![];
-            self.tree.push(leaves);
-        }
-        // I ensured it's not empty
+        match self.tree.first_mut() {
+            Some(_) => (),
+            None => {
+                let leaves = vec![];
+                self.tree.push(leaves);
+            }
+        };
         self.tree.first_mut().unwrap()
     }
 }
