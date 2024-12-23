@@ -133,11 +133,7 @@ impl MerkleTree {
     }
 
     fn get_root(&self) -> Option<&Hash> {
-        if let Some(root_level) = self.tree.last() {
-            root_level.first()
-        } else {
-            None
-        }
+        self.tree.last()?.first()
     }
 
     /// Verify if the leaf with a given proof and index can calculate the same root as provided
